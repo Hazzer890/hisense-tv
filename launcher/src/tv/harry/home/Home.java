@@ -1,5 +1,6 @@
 package tv.harry.home;
 
+import android.animation.ObjectAnimator;
 import android.app.Activity;
 import android.app.ActivityManager;
 import android.content.Intent;
@@ -8,6 +9,7 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.BlurMaskFilter;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
 import android.graphics.CornerPathEffect;
@@ -25,6 +27,7 @@ import android.media.tv.TvInputInfo;
 import android.media.tv.TvInputManager;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.util.SparseArray;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -59,12 +62,17 @@ public class Home extends Activity {
             "com.crunchyroll.crunchyroid",
             "com.plexapp.android");
 
-    static final int COLS = 5, SIDE = 58, GAP = 9;          // dp
+    static final int COLS = 5, SIDE = 58, GAP = 9, SHADOW = 28;   // dp
     static final int WHITE = 0xFFFFFFFF, GLASS = 0x33FFFFFF, INK = 0xFF111111;
 
     private FrameLayout root;
     private Bitmap wallpaper;
     private boolean showingAll;
+    private String shown;
+    static Home live;                 // lets the screensaver tell us it has ended
+    private View content;             // clock and tiles: everything on Home except the photo
+    private ImageView veil;           // blurred photo, faded in on the way to the screensaver
+    private final SparseArray<Bitmap> shadows = new SparseArray<>();
 
     @Override
     protected void onCreate(Bundle b) {
@@ -73,13 +81,26 @@ public class Home extends Activity {
         root.setBackgroundColor(0xFF000000);
         setContentView(root);
         wallpaper = loadWallpaper();
+        live = this;
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        // Rebuilt on every return so installs, removals and renamed inputs show up. It is a few dozen views.
-        showHome();
+        // Rebuild only when something on screen would differ (install, removal, renamed input, new
+        // Resume target). Otherwise the views and their uploaded textures are reused as they are.
+        String now = stateKey();
+        if (showingAll || !now.equals(shown)) {
+            shown = now;
+            showHome();
+        }
+    }
+
+    private String stateKey() {
+        StringBuilder s = new StringBuilder(String.valueOf(getPreferences(MODE_PRIVATE).getString("pkg", "")));
+        for (ResolveInfo r : launchables()) s.append('|').append(r.activityInfo.name);
+        for (TvInputInfo in : inputs()) s.append('|').append(in.loadLabel(this));
+        return s.toString();
     }
 
     /** Home pressed while already on the home screen starts the screensaver. From an app it just comes here. */
@@ -88,7 +109,31 @@ public class Home extends Activity {
         super.onNewIntent(i);
         if (!hasWindowFocus()) return;
         if (showingAll) showHome();
-        else start(new Intent().setClassName("com.android.systemui", "com.android.systemui.Somnambulator"));
+        else toSaver();
+    }
+
+    /**
+     * About two thirds of a second, end to end: tiles and clock fade out, the photo blurs, then the screensaver
+     * opens already showing that same blurred photo and fades its clock in.
+     */
+    private void toSaver() {
+        if (content == null || content.getAlpha() < 1f) return; // already on the way
+        content.animate().alpha(0f).setDuration(250).start();
+        veil.setImageBitmap(Saver.blur(this));
+        ObjectAnimator.ofInt(veil, "imageAlpha", 0, 255).setDuration(300).start();
+        root.postDelayed(() -> {
+            Saver.handoff = true;
+            start(new Intent().setClassName("com.android.systemui", "com.android.systemui.Somnambulator"));
+        }, 300);
+        // If the screensaver never opens (none set, say), don't leave Home blank.
+        root.postDelayed(() -> { if (!Saver.running) afterSaver(); }, 3000);
+    }
+
+    /** Screensaver closed: photo sharp again, tiles back. */
+    void afterSaver() {
+        Saver.handoff = false;
+        if (veil != null) veil.setImageAlpha(0);
+        if (content != null && content.getAlpha() < 1f) fadeIn(content);
     }
 
     @Override
@@ -102,6 +147,13 @@ public class Home extends Activity {
         showingAll = false;
         root.removeAllViews();
         addBackdrop(0);
+        veil = new ImageView(this);
+        veil.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        veil.setImageAlpha(0);
+        root.addView(veil, new FrameLayout.LayoutParams(-1, -1));
+        FrameLayout page = new FrameLayout(this);
+        unclip(page);
+        content = page;
 
         TextClock clock = new TextClock(this);
         clock.setFormat12Hour("h:mm");
@@ -112,7 +164,7 @@ public class Home extends Activity {
         clock.setShadowLayer(dp(6), 0, dp(1), 0x99000000);
         FrameLayout.LayoutParams cp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
         cp.setMargins(0, dp(30), dp(SIDE), 0);
-        root.addView(clock, cp);
+        page.addView(clock, cp);
 
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
@@ -149,12 +201,15 @@ public class Home extends Activity {
         pills.addView(pill("All Apps", v -> showAll()));
         col.addView(pills);
 
-        root.addView(col, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
+        page.addView(col, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
+        root.addView(page, new FrameLayout.LayoutParams(-1, -1));
+        fadeIn(page);
         if (first != null) first.requestFocus();
     }
 
     private void showAll() {
         showingAll = true;
+        content = null;
         root.removeAllViews();
         addBackdrop(0xD9000000);
 
@@ -186,6 +241,7 @@ public class Home extends Activity {
         col.addView(sv);
 
         root.addView(col);
+        fadeIn(col);
         if (first != null) first.requestFocus();
     }
 
@@ -197,6 +253,7 @@ public class Home extends Activity {
         if (tint != 0) {
             View shade = new View(this);
             shade.setBackgroundColor(tint);
+            fadeIn(shade);
             root.addView(shade, new FrameLayout.LayoutParams(-1, -1));
         }
     }
@@ -211,10 +268,8 @@ public class Home extends Activity {
             if (names.isEmpty()) return null;
             Collections.sort(names);
             String pick = names.get(Calendar.getInstance().get(Calendar.DAY_OF_YEAR) % names.size());
-            BitmapFactory.Options o = new BitmapFactory.Options();
-            o.inPreferredConfig = Bitmap.Config.RGB_565; // 4 MB instead of 8 on a 1.4 GB TV
             try (InputStream in = getAssets().open(pick)) {
-                return BitmapFactory.decodeStream(in, null, o);
+                return BitmapFactory.decodeStream(in); // full colour (8 MB): 16-bit banded the frosted fade
             }
         } catch (Exception | OutOfMemoryError e) {
             return null;
@@ -350,7 +405,19 @@ public class Home extends Activity {
         LinearLayout cell = new LinearLayout(this);
         cell.setOrientation(LinearLayout.VERTICAL);
         unclip(cell);
-        cell.addView(card, new LinearLayout.LayoutParams(w, w * 9 / 16));
+        // Card plus a pre-blurred shadow behind it. Focus scales the pair and fades the shadow in:
+        // two GPU transforms, where a real elevation shadow is re-tessellated every frame.
+        int h = w * 9 / 16, pad = dp(SHADOW);
+        final ImageView shadow = new ImageView(this);
+        shadow.setImageBitmap(shadow(w, h));
+        shadow.setAlpha(0f);
+        FrameLayout.LayoutParams sp = new FrameLayout.LayoutParams(w + 2 * pad, h + 2 * pad);
+        sp.setMargins(-pad, -pad, -pad, -pad);
+        final FrameLayout lift = new FrameLayout(this);
+        unclip(lift);
+        lift.addView(shadow, sp);
+        lift.addView(card, new FrameLayout.LayoutParams(w, h));
+        cell.addView(lift, new LinearLayout.LayoutParams(w, h));
         LinearLayout.LayoutParams capLp = new LinearLayout.LayoutParams(w, dp(22));
         capLp.topMargin = dp(10);
         cell.addView(caption, capLp);
@@ -358,14 +425,34 @@ public class Home extends Activity {
         cell.setFocusable(true);
         cell.setOnClickListener(onClick);
         cell.setOnFocusChangeListener((v, has) -> {
-            card.animate().scaleX(has ? 1.12f : 1f).scaleY(has ? 1.12f : 1f)
-                    .translationZ(has ? dp(14) : 0).setDuration(140).start();
+            lift.animate().scaleX(has ? 1.12f : 1f).scaleY(has ? 1.12f : 1f).setDuration(140).start();
+            shadow.animate().alpha(has ? 1f : 0f).setDuration(140).start();
             caption.animate().alpha(has ? 1f : 0f).setDuration(140).start();
         });
         ViewGroup.MarginLayoutParams lp = new ViewGroup.MarginLayoutParams(-2, -2);
         lp.setMargins(dp(GAP), dp(8), dp(GAP), 0);
         cell.setLayoutParams(lp);
         return cell;
+    }
+
+    /** Soft drop shadow for a w x h card, blurred once in software and shared by every tile that size. */
+    private Bitmap shadow(int w, int h) {
+        Bitmap b = shadows.get(w);
+        if (b != null) return b;
+        int pad = dp(SHADOW);
+        b = Bitmap.createBitmap(w + 2 * pad, h + 2 * pad, Bitmap.Config.ARGB_8888);
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        p.setColor(0xB0000000);
+        p.setMaskFilter(new BlurMaskFilter(pad * 0.45f, BlurMaskFilter.Blur.NORMAL));
+        int drop = pad / 3;
+        new Canvas(b).drawRoundRect(pad, pad + drop, pad + w, pad + h + drop, dp(12), dp(12), p);
+        shadows.put(w, b);
+        return b;
+    }
+
+    private static void fadeIn(View v) {
+        v.setAlpha(0f);
+        v.animate().alpha(1f).setDuration(180).start();
     }
 
     /** Small glass capsule that turns solid white when focused. */
