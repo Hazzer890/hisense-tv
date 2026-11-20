@@ -1,0 +1,13 @@
+# signing key and build output
+launcher/debug.keystore
+launcher/out/
+*.apk
+*.idsig
+
+# personal photos (people's faces) and screenshots; supply your own in launcher/wallpaper-src
+launcher/wallpaper-src/
+launcher/assets/
+*.png
+
+# this TV's network identity
+tv-mac.txt

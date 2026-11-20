@@ -1,0 +1,10 @@
+﻿package:/data/app/au.com.ninenow.ctv-VjRmEkxshfa9Zk-gEB4wsQ==/base.apk=au.com.ninenow.ctv
+package:/data/app/au.com.tenplay-1dggtbhBJGyn5zbtYBtj_Q==/base.apk=au.com.tenplay
+package:/data/app/au.net.abc.iview-L6pumNjOxu8IyOU3_jnGsQ==/base.apk=au.net.abc.iview
+package:/data/app/com.amazon.amazonvideo.livingroom-1k15zKxFDnDqiGgKdsI-TQ==/base.apk=com.amazon.amazonvideo.livingroom
+package:/data/app/com.crunchyroll.crunchyroid-jAYXuLjxdjEObSGFgJOjcA==/base.apk=com.crunchyroll.crunchyroid
+package:/data/app/com.disney.disneyplus-DDf4c9ZnxoAE0lnBOv4NPA==/base.apk=com.disney.disneyplus
+package:/data/app/com.plexapp.android-muBJ7X5rBpAEwqKksTtmUQ==/base.apk=com.plexapp.android
+package:/data/app/com.spotify.tv.android-1xQDTaxZqvVv7wJX8-z3Uw==/base.apk=com.spotify.tv.android
+package:/data/app/com.valvesoftware.steamlink-sZTQ-r5FP9-CvR7no-Xwug==/base.apk=com.valvesoftware.steamlink
+package:/data/app/tv.twitch.android.app-BgdHNSNF38Udcn3Jx04Y-w==/base.apk=tv.twitch.android.app
